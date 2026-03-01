@@ -1,37 +1,37 @@
 name: Update Uspeh Token
 
-# Настройка расписания запуска
+# Налаштування розкладу та ручного запуску
 on:
   schedule:
-    # Запуск каждые 3 дня в 04:00 утра по UTC (06:00 по Киеву)
+    # Запуск кожні 3 дні о 04:00 ранку за UTC (06:00 за Києвом)
     - cron: '0 4 */3 * *'
-  # Позволяет запускать скрипт вручную через вкладку Actions
+  # Дозволяє запускати скрипт вручну через вкладку Actions
   workflow_dispatch:
 
 jobs:
   run-script:
-    # Используем последнюю стабильную версию Ubuntu
+    # Використовуємо останню стабільну версію Ubuntu
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Копируем файлы из вашего репозитория в виртуальную машину
+      # 1. Копіюємо файли з вашого репозиторію у віртуальну машину
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Устанавливаем Python 3.10
+      # 2. Встановлюємо Python 3.10
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      # 3. Устанавливаем системные зависимости для Chrome
-      # Это помогает избежать ошибок "session not created"
+      # 3. Встановлюємо Google Chrome (найновішу стабільну версію)
+      # Це важливо для усунення помилок "session not created"
       - name: Install Google Chrome
         run: |
           sudo apt-get update
           sudo apt-get install -y google-chrome-stable
 
-      # 4. Устанавливаем библиотеки для работы скрипта
+      # 4. Встановлюємо необхідні бібліотеки Python
       - name: Install Python Dependencies
         run: |
           pip install undetected-chromedriver requests beautifulsoup4 selenium
@@ -40,9 +40,9 @@ jobs:
       - name: Run script
         run: python vip_uspeh.py
 
-      # 6. Сохраняем скриншот в случае ошибки (для отладки)
-      # Если токен не найдется, вы сможете скачать картинку во вкладке Actions
-      - name: Upload Debug Screenshot
+      # 6. Збереження скріншотів у разі помилки
+      # Якщо скрипт впаде, ви зможете завантажити картинку для перевірки, що пішло не так
+      - name: Upload Debug Screenshots
         if: failure()
         uses: actions/upload-artifact@v4
         with:
@@ -50,3 +50,4 @@ jobs:
           path: |
             token_missing_debug.png
             final_error.png
+            itv_error.png
