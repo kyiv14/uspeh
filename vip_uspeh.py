@@ -41,7 +41,7 @@ def wait_for_activation_link(session, email):
             continue
     return None
 
-# --- ЗАПУСК БРАУЗЕРА (ВИПРАВЛЕНО ДЛЯ GITHUB ACTIONS) ---
+# --- ЗАПУСК БРАУЗЕРА (ВИПРАВЛЕНО ДЛЯ КОНФЛІКТУ ВЕРСІЙ 145/146 НА GITHUB) ---
 print("[*] Ініціалізація маскованого браузера...")
 
 options = uc.ChromeOptions()
@@ -51,16 +51,23 @@ options.add_argument("--disable-gpu")
 options.add_argument("--window-size=1920,1080")
 
 try:
-    # headless=True та use_subprocess=False вирішують проблему "cannot connect to chrome"
+    # Примусово вказуємо версію 145 для сумісності з поточним середовищем GitHub
+    # use_subprocess=False усуває помилку "cannot connect to chrome"
     driver = uc.Chrome(
         options=options, 
         headless=True, 
-        use_subprocess=False 
+        version_main=145, 
+        use_subprocess=False
     ) 
     wait = WebDriverWait(driver, 30)
 except Exception as e:
-    print(f"[-] Критична помилка запуску: {e}")
-    exit()
+    print(f"[*] Спроба №2: автоматичний підбір драйвера...")
+    try:
+        driver = uc.Chrome(options=options, headless=True, use_subprocess=False)
+        wait = WebDriverWait(driver, 30)
+    except Exception as e2:
+        print(f"[-] Критична помилка запуску: {e2}")
+        exit()
 
 try:
     # 1. Реєстрація на Uspeh TV
@@ -121,7 +128,7 @@ try:
         driver.get(MY_PANEL_URL)
         time.sleep(5)
 
-        # Видалення оверлеїв через JS
+        # Видалення оверлеїв через JS, щоб не заважали формі
         driver.execute_script("""
             document.querySelectorAll('#reminderOverlay, .modal-backdrop, .toast-container').forEach(el => el.remove());
             document.body.style.overflow = 'auto';
@@ -145,4 +152,5 @@ except Exception as e:
     driver.save_screenshot("final_error.png")
 
 finally:
-    driver.quit()
+    if 'driver' in locals():
+        driver.quit()
