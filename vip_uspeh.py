@@ -7,13 +7,13 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 
-# --- НАСТРОЙКИ ВАШИХ ПРОЕКТОВ ---
+# --- КОНФІГУРАЦІЯ ---
 TEMP_MAIL_URL = "https://i-tv.top/tempmail/index.php"
 CHECK_MAIL_URL = "https://i-tv.top/tempmail/check.php"
 MY_PANEL_URL = "https://i-tv.top/uspeh/?tab=uspeh"
 
 def get_temp_email():
-    """Отримує новий email з вашого API."""
+    """Отримує нову адресу електронної пошти через ваш API."""
     session = requests.Session()
     try:
         response = session.get(TEMP_MAIL_URL, timeout=15)
@@ -23,12 +23,12 @@ def get_temp_email():
             return email_element.text.strip(), session
         return None, None
     except Exception as e:
-        print(f"[-] Помилка поштового сервісу: {e}")
+        print(f"[-] Помилка отримання пошти: {e}")
         return None, None
 
 def wait_for_activation_link(session, email):
-    """Очікує посилання підтвердження в поштовій скриньці."""
-    print(f"[*] Очікуємо лист для {email}...")
+    """Очікує на лист підтвердження в поштовій скриньці."""
+    print(f"[*] Очікуємо на лист для {email}...")
     pattern = r'https://billing\.uspeh\.tv/verify-email\?token=[a-zA-Z0-9]+'
     for _ in range(60): 
         time.sleep(5)
@@ -41,8 +41,9 @@ def wait_for_activation_link(session, email):
             continue
     return None
 
-# --- ЗАПУСК БРАУЗЕРА (ОПТИМІЗОВАНО ДЛЯ GITHUB ACTIONS) ---
-print("[*] Ініціалізація маскованого браузера для GitHub...")
+# --- ЗАПУСК БРАУЗЕРА (ВИПРАВЛЕНО ДЛЯ GITHUB ACTIONS) ---
+print("[*] Ініціалізація маскованого браузера...")
+
 options = uc.ChromeOptions()
 options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
@@ -50,25 +51,27 @@ options.add_argument("--disable-gpu")
 options.add_argument("--window-size=1920,1080")
 
 try:
-    # Використовуємо headless режим прямо в конструкторі для стабільності
-    driver = uc.Chrome(options=options, headless=True, use_subprocess=False) 
+    # headless=True та use_subprocess=False вирішують проблему "cannot connect to chrome"
+    driver = uc.Chrome(
+        options=options, 
+        headless=True, 
+        use_subprocess=False 
+    ) 
     wait = WebDriverWait(driver, 30)
 except Exception as e:
     print(f"[-] Критична помилка запуску: {e}")
     exit()
 
 try:
-    # 1. Отримання пошти
+    # 1. Реєстрація на Uspeh TV
     email_addr, py_session = get_temp_email()
     if not email_addr: 
-        raise Exception("Не вдалося отримати тимчасову адресу")
+        raise Exception("Не вдалося отримати тимчасову пошту")
     
-    print(f"[+] Робочий email: {email_addr}")
+    print(f"[+] Використовуємо пошту: {email_addr}")
     username = email_addr.split('@')[0]
     password = "VipPassword123!"
 
-    # 2. Реєстрація на Uspeh TV
-    print("[*] Перехід до реєстрації на Uspeh TV...")
     driver.get("https://billing.uspeh.tv/register")
     time.sleep(2)
     
@@ -80,31 +83,29 @@ try:
     pass_inputs[1].send_keys(password)
     
     driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
-    print("[+] Форма реєстрації відправлена")
+    print("[*] Форму реєстрації відправлено")
 
-    # 3. Підтвердження пошти
+    # 2. Активація через посилання
     activation_link = wait_for_activation_link(py_session, email_addr)
     if not activation_link:
-        raise Exception("Посилання активації не прийшло")
+        raise Exception("Лист активації не знайдено")
     
     driver.get(activation_link)
-    print("[+] Аккаунт успішно активовано")
+    print("[+] Аккаунт активовано")
 
-    # 4. Авторизація
+    # 3. Авторизація
     wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "input[type='password']")))
-    login_field = driver.find_element(By.CSS_SELECTOR, "input[type='text'], input[name='login']")
-    login_field.send_keys(email_addr)
+    driver.find_element(By.CSS_SELECTOR, "input[type='text'], input[name='login']").send_keys(email_addr)
     driver.find_element(By.CSS_SELECTOR, "input[type='password']").send_keys(password)
     driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
-    print("[*] Вхід у особистий кабінет виконано")
+    print("[*] Вхід виконано")
 
-    # 5. Пошук токена (Ультра-метод сканування коду)
-    print("[*] Пошук токена на сторінці (очікування завантаження JS)...")
-    time.sleep(12) # Збільшена пауза для стабільності в хмарі
+    # 4. Пошук токена (Сканування коду сторінки)
+    print("[*] Очікуємо завантаження токена...")
+    time.sleep(12) 
     
     final_token = None
     page_source = driver.page_source
-    # Шукаємо 16-значний код (A-Z, a-z, 0-9)
     potential_tokens = re.findall(r'[A-Za-z0-9]{16}', page_source)
     
     for t in potential_tokens:
@@ -113,38 +114,30 @@ try:
             break
 
     if final_token:
-        print(f"\n[УРА] ТОКЕН ЗНАЙДЕНО: {final_token}\n")
+        print(f"[УСПІХ] ТОКЕН ЗНАЙДЕНО: {final_token}")
         
-        # 6. Оновлення на вашому сайті i-tv.top
-        try:
-            print(f"[*] Перехід на i-tv.top для оновлення...")
-            driver.get(MY_PANEL_URL)
-            time.sleep(5)
+        # 5. Оновлення на вашому сайті i-tv.top
+        print(f"[*] Перехід на i-tv.top для запису в uspeh.txt...")
+        driver.get(MY_PANEL_URL)
+        time.sleep(5)
 
-            # ПРИМУСОВЕ ВИДАЛЕННЯ ОВЕРЛЕЮ ТА МОДАЛОК
-            driver.execute_script("""
-                document.querySelectorAll('#reminderOverlay, .modal-backdrop, .toast-container').forEach(el => el.remove());
-                document.body.style.overflow = 'auto';
-            """)
-            print("[!] Блокуючі елементи видалено")
+        # Видалення оверлеїв через JS
+        driver.execute_script("""
+            document.querySelectorAll('#reminderOverlay, .modal-backdrop, .toast-container').forEach(el => el.remove());
+            document.body.style.overflow = 'auto';
+        """)
 
-            # Введення токена через JavaScript
-            input_field = wait.until(EC.presence_of_element_located((By.NAME, "input_data")))
-            print(f"[*] Відправка токена {final_token} у форму...")
-            driver.execute_script("arguments[0].value = arguments[1];", input_field, final_token)
-            
-            # Пряма відправка форми через JS submit() — найнадійніший метод
-            driver.execute_script("document.querySelector('form').submit();")
-            
-            print("[+++] ДАНІ ВІДПРАВЛЕНО НА СЕРВЕР")
-            time.sleep(5) 
-            
-        except Exception as e:
-            print(f"[-] Помилка при оновленні вашого сайту: {e}")
-            driver.save_screenshot("itv_error.png")
-
+        # Введення токена та відправка форми
+        input_field = wait.until(EC.presence_of_element_located((By.NAME, "input_data")))
+        driver.execute_script("arguments[0].value = arguments[1];", input_field, final_token)
+        
+        # Використовуємо прямий submit форми для надійності на HostiQ
+        driver.execute_script("document.querySelector('form').submit();")
+        
+        print("[+++] ДАНІ ВІДПРАВЛЕНО НА ВАШ СЕРВЕР")
+        time.sleep(5) 
     else:
-        print("[-] Помилка: Токен не знайдено в коді сторінки.")
+        print("[-] Помилка: Токен не знайдено.")
         driver.save_screenshot("token_missing_debug.png")
 
 except Exception as e:
@@ -152,5 +145,4 @@ except Exception as e:
     driver.save_screenshot("final_error.png")
 
 finally:
-    print("[*] Завершення сесії...")
     driver.quit()
