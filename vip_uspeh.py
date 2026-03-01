@@ -41,13 +41,18 @@ def wait_for_activation_link(session, email):
             continue
     return None
 
-# --- ЗАПУСК БРАУЗЕРА ---
-print("[*] Инициализация маскированного браузера (v145)...")
+# --- ЗАПУСК БРАУЗЕРА (ОПТИМИЗИРОВАНО ДЛЯ GITHUB ACTIONS) ---
+print("[*] Инициализация маскированного браузера для GitHub...")
 options = uc.ChromeOptions()
-options.add_argument("--window-size=1920,1080") # Гарантирует видимость элементов
+options.add_argument("--headless")           # Работа без графического окна
+options.add_argument("--no-sandbox")          # Обязательно для Linux/Docker
+options.add_argument("--disable-dev-shm-usage") # Профилактика ошибок памяти
+options.add_argument("--disable-gpu")
+options.add_argument("--window-size=1920,1080")
 
 try:
-    driver = uc.Chrome(options=options, version_main=145)
+    # version_main удален для автоматического подбора версии в GitHub
+    driver = uc.Chrome(options=options) 
     wait = WebDriverWait(driver, 30)
 except Exception as e:
     print(f"[-] Критическая ошибка запуска: {e}")
@@ -94,13 +99,13 @@ try:
     driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
     print("[*] Вход в личный кабинет выполнен")
 
-    # 5. Поиск токена (Ультра-метод)
+    # 5. Поиск токена (Ультра-метод сканирования кода)
     print("[*] Поиск токена на странице (ожидание загрузки JS)...")
-    time.sleep(8) 
+    time.sleep(10) # Увеличенная пауза для стабильности в облаке
     
     final_token = None
     page_source = driver.page_source
-    # Ищем строку из 16 символов (A-Z, a-z, 0-9)
+    # Ищем 16-значный код (A-Z, a-z, 0-9)
     potential_tokens = re.findall(r'[A-Za-z0-9]{16}', page_source)
     
     for t in potential_tokens:
@@ -113,51 +118,41 @@ try:
         
         # 6. Обновление на вашем сайте i-tv.top
         try:
-            print(f"[*] Переход на i-tv.top для обновления uspeh.txt...")
+            print(f"[*] Переход на i-tv.top для обновления...")
             driver.get(MY_PANEL_URL)
-            time.sleep(3)
+            time.sleep(5)
 
-            # ПРИНУДИТЕЛЬНОЕ УДАЛЕНИЕ ОВЕРЛЕЯ (блокирующего окна "Час оновити токен")
+            # ПРИНУДИТЕЛЬНОЕ УДАЛЕНИЕ ОВЕРЛЕЯ
             driver.execute_script("""
-                var overlay = document.getElementById('reminderOverlay');
-                if(overlay) overlay.remove();
-                var backdrop = document.getElementsByClassName('modal-backdrop');
-                while(backdrop.length > 0) backdrop[0].remove();
+                document.querySelectorAll('#reminderOverlay, .modal-backdrop, .toast-container').forEach(el => el.remove());
+                document.body.style.overflow = 'auto';
             """)
             print("[!] Блокирующие элементы удалены")
 
-            # Ввод токена через JavaScript для обхода любых блокировок
+            # Ввод токена через JavaScript
             input_field = wait.until(EC.presence_of_element_located((By.NAME, "input_data")))
-            print(f"[*] Передача токена {final_token} в PHP-форму...")
+            print(f"[*] Отправка токена {final_token} в форму...")
             driver.execute_script("arguments[0].value = arguments[1];", input_field, final_token)
             
-            # Нажатие кнопки "Оновити систему" через JavaScript
-            submit_btn = driver.find_element(By.CSS_SELECTOR, "button.btn")
-            driver.execute_script("arguments[0].click();", submit_btn)
+            # Отправка формы напрямую через JS submit() для надежности
+            driver.execute_script("document.querySelector('form').submit();")
             
-            print("[+++] ДАННЫЕ ОТПРАВЛЕНЫ. Ожидание записи на сервере...")
+            print("[+++] ДАННЫЕ ОТПРАВЛЕНЫ НА СЕРВЕР")
             time.sleep(5) 
-            
-            # Проверка результата
-            driver.refresh()
-            time.sleep(2)
-            print("[ФИНИШ] Процесс завершен. Проверьте 'Поточний стан' на сайте.")
             
         except Exception as e:
             print(f"[-] Ошибка при обновлении вашего сайта: {e}")
 
-        # Локальное сохранение для подстраховки
+        # Локальное сохранение (в облаке GitHub файл будет доступен в логах, если настроить артефакты)
         with open("uspeh_tokens.txt", "a", encoding="utf-8") as f:
             f.write(f"{time.strftime('%Y-%m-%d %H:%M:%S')} | {email_addr} | {final_token}\n")
     else:
         print("[-] Ошибка: Токен не найден в коде страницы.")
-        driver.save_screenshot("token_missing.png")
+        driver.save_screenshot("token_missing_debug.png")
 
 except Exception as e:
     print(f"[-] Произошла ошибка: {e}")
-    driver.save_screenshot("final_error_debug.png")
 
 finally:
-    print("[*] Завершение через 5 секунд...")
-    time.sleep(5)
+    print("[*] Завершение сессии...")
     driver.quit()
