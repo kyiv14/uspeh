@@ -3,35 +3,34 @@ name: Update Uspeh Token
 # Налаштування розкладу та ручного запуску
 on:
   schedule:
-    # Запуск кожні 3 дні о 04:00 ранку за UTC (06:00 за Києвом)
+    # Автоматичний запуск кожні 3 дні о 04:00 за UTC (06:00 за Києвом)
     - cron: '0 4 */3 * *'
-  # Дозволяє запускати скрипт вручну через вкладку Actions
+  # Дозволяє запускати скрипт вручну кнопкою "Run workflow"
   workflow_dispatch:
 
 jobs:
   run-script:
-    # Використовуємо останню стабільну версію Ubuntu
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Копіюємо файли з вашого репозиторію у віртуальну машину
+      # 1. Отримання коду з вашого репозиторію
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Встановлюємо Python 3.10
+      # 2. Встановлення Python 3.10
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      # 3. Встановлюємо Google Chrome (найновішу стабільну версію)
-      # Це важливо для усунення помилок "session not created"
-      - name: Install Google Chrome
+      # 3. Оновлення та примусове встановлення Google Chrome Stable
+      # Це допомагає синхронізувати версію браузера з ChromeDriver
+      - name: Update Google Chrome
         run: |
           sudo apt-get update
-          sudo apt-get install -y google-chrome-stable
+          sudo apt-get install --only-upgrade google-chrome-stable || sudo apt-get install -y google-chrome-stable
 
-      # 4. Встановлюємо необхідні бібліотеки Python
+      # 4. Встановлення необхідних бібліотек
       - name: Install Python Dependencies
         run: |
           pip install undetected-chromedriver requests beautifulsoup4 selenium
@@ -41,7 +40,7 @@ jobs:
         run: python vip_uspeh.py
 
       # 6. Збереження скріншотів у разі помилки
-      # Якщо скрипт впаде, ви зможете завантажити картинку для перевірки, що пішло не так
+      # Якщо токен не знайдено, ви зможете скачати архів із картинками у вкладці Actions
       - name: Upload Debug Screenshots
         if: failure()
         uses: actions/upload-artifact@v4
@@ -50,4 +49,3 @@ jobs:
           path: |
             token_missing_debug.png
             final_error.png
-            itv_error.png
