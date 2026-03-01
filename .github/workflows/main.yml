@@ -1,27 +1,52 @@
 name: Update Uspeh Token
 
+# Настройка расписания запуска
 on:
   schedule:
-    # Запуск каждые 3 дня в 04:00 утра по UTC
+    # Запуск каждые 3 дня в 04:00 утра по UTC (06:00 по Киеву)
     - cron: '0 4 */3 * *'
-  workflow_dispatch: # Позволяет запускать скрипт вручную кнопкой
+  # Позволяет запускать скрипт вручную через вкладку Actions
+  workflow_dispatch:
 
 jobs:
   run-script:
+    # Используем последнюю стабильную версию Ubuntu
     runs-on: ubuntu-latest
 
     steps:
+      # 1. Копируем файлы из вашего репозитория в виртуальную машину
       - name: Checkout code
-        uses: actions/checkout@v3
+        uses: actions/checkout@v4
 
+      # 2. Устанавливаем Python 3.10
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.10'
 
-      - name: Install dependencies
+      # 3. Устанавливаем системные зависимости для Chrome
+      # Это помогает избежать ошибок "session not created"
+      - name: Install Google Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      # 4. Устанавливаем библиотеки для работы скрипта
+      - name: Install Python Dependencies
         run: |
           pip install undetected-chromedriver requests beautifulsoup4 selenium
 
+      # 5. Запуск основного скрипта
       - name: Run script
         run: python vip_uspeh.py
+
+      # 6. Сохраняем скриншот в случае ошибки (для отладки)
+      # Если токен не найдется, вы сможете скачать картинку во вкладке Actions
+      - name: Upload Debug Screenshot
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: debug-screenshots
+          path: |
+            token_missing_debug.png
+            final_error.png
