@@ -1,0 +1,27 @@
+name: Update Uspeh Token
+
+on:
+  schedule:
+    # Запуск каждые 3 дня в 04:00 утра по UTC
+    - cron: '0 4 */3 * *'
+  workflow_dispatch: # Позволяет запускать скрипт вручную кнопкой
+
+jobs:
+  run-script:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Install dependencies
+        run: |
+          pip install undetected-chromedriver requests beautifulsoup4 selenium
+
+      - name: Run script
+        run: python vip_uspeh.py
