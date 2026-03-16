@@ -45,7 +45,6 @@ options.add_argument("--no-sandbox")
 options.add_argument("--disable-dev-shm-usage")
 
 try:
-    # Використовуємо налаштування для GitHub Actions
     driver = uc.Chrome(options=options, version_main=145, use_subprocess=False) 
     wait = WebDriverWait(driver, 30)
 
@@ -53,7 +52,7 @@ try:
     if not email_addr: exit("[-] Не вдалося отримати пошту")
     print(f"[+] Пошта: {email_addr}")
 
-    # 1. ОЧИЩЕННЯ ТА ПІДГОТОВКА СТОРІНКИ
+    # 1. ПІДГОТОВКА СТОРІНКИ (ОЧИЩЕННЯ)
     driver.get("https://www.ottclub.tv")
     time.sleep(2)
     
@@ -61,42 +60,55 @@ try:
     driver.delete_all_cookies()
     driver.execute_script("window.localStorage.clear();")
     driver.refresh() 
-    time.sleep(5) # Час для появи спливаючих вікон
+    time.sleep(5) 
 
-    # 2. ЗАКРИТТЯ МОДАЛЬНИХ ВІКОН
-    print("[*] Обробка перешкод...")
+    # 2. ОБРОБКА ПЕРЕШКОД
     try:
-        # Приймаємо куки (синя кнопка)
         cookie_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'ринять')] | //button[contains(., 'ринйняти')]")))
         cookie_btn.click()
+        print("[+] Куки прийнято")
     except:
         pass
 
     try:
-        # Закриваємо рекламу застосунку (хрестик)
         close_btn = driver.find_element(By.CSS_SELECTOR, "div[class*='modal'] svg, .modal-close, button[class*='close']")
         driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('click', {bubbles: true}));", close_btn)
+        print("[+] Рекламу закрито")
     except:
         pass
 
     time.sleep(2)
 
-    # 3. ВВЕДЕННЯ EMAIL ТА ЗАПИТ ТЕСТУ
+    # 3. ВВЕДЕННЯ EMAIL (Емуляція людини)
     email_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']")))
-    email_field.send_keys(email_addr)
+    email_field.clear()
+    for char in email_addr:
+        email_field.send_keys(char)
+        time.sleep(0.1)
     
-    # Кнопка тесту
-    test_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'ротесту')] | //button[contains(., 'ротести')]")))
-    test_btn.click()
-    print("[*] Запит надіслано")
+    time.sleep(2)
 
-    # 4. ВВЕДЕННЯ КОДУ ПІДТВЕРДЖЕННЯ
+    # Запит тесту
+    test_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'ротесту')] | //button[contains(., 'ротести')]")))
+    driver.execute_script("arguments[0].click();", test_btn)
+    
+    # Перевірка успішної відправки
+    time.sleep(4)
+    if "відправлено код" not in driver.page_source.lower() and "код отправлен" not in driver.page_source.lower():
+        print("[-] Попередження: Форма вводу коду не з'явилася. Спроба повторного кліку...")
+        driver.execute_script("arguments[0].click();", test_btn)
+        time.sleep(3)
+
+    # 4. ВВЕДЕННЯ КОДУ
     otp_code = wait_for_otp_code(email_addr)
-    if not otp_code: raise Exception("Код не знайдено")
+    if not otp_code: 
+        print("[-] Код не знайдено. Вміст сторінки для діагностики:")
+        print(driver.page_source[:500]) # Вивід початку сторінки для пошуку тексту помилки
+        raise Exception("Код не отримано")
+
     print(f"[+] Код отримано: {otp_code}")
 
-    # Поля для вводу 6 цифр
-    wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input")))
+    wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "input")))
     code_inputs = driver.find_elements(By.CSS_SELECTOR, "input[maxlength='1'], .regform input")
     if not code_inputs:
         code_inputs = driver.find_elements(By.XPATH, "//input[@type='text' or @type='number']")[0:6]
@@ -105,7 +117,7 @@ try:
         code_inputs[i].send_keys(digit)
         time.sleep(0.1)
 
-    # Галочка згоди та кнопка Продовжити
+    # Згода та Продовження
     agreement = driver.find_element(By.CSS_SELECTOR, "input[type='checkbox']")
     driver.execute_script("arguments[0].click();", agreement)
 
@@ -117,7 +129,6 @@ try:
     driver.get("https://www.ottclub.tv/billing")
     time.sleep(5)
     
-    # Витягуємо ключ із тексту сторінки
     page_content = driver.page_source
     key_match = re.search(r'([A-Z0-9]{10,12})', page_content)
 
@@ -125,13 +136,13 @@ try:
         final_key = key_match.group(1)
         print(f"[УСПІХ] КЛЮЧ: {final_key}")
         
-        # Оновлення на вашому сервері
+        # Оновлення на сервері i-tv.top
         driver.get(MY_PANEL_URL)
         time.sleep(5)
         input_field = wait.until(EC.presence_of_element_located((By.NAME, "input_data")))
         driver.execute_script("arguments[0].value = arguments[1];", input_field, final_key)
         driver.execute_script("document.querySelector('form').submit();")
-        print("[+++] ДАНІ ОНОВЛЕНО")
+        print("[+++] СИСТЕМУ ОНОВЛЕНО")
     else:
         print("[-] Ключ не знайдено")
         driver.save_screenshot("ott_key_missing.png")
