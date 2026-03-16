@@ -52,7 +52,7 @@ try:
     if not email_addr: exit("[-] Не вдалося отримати пошту")
     print(f"[+] Пошта: {email_addr}")
 
-    # 1. ПІДГОТОВКА СТОРІНКИ (ОЧИЩЕННЯ)
+    # 1. ПІДГОТОВКА СТОРІНКИ
     driver.get("https://www.ottclub.tv")
     time.sleep(2)
     
@@ -60,10 +60,12 @@ try:
     driver.delete_all_cookies()
     driver.execute_script("window.localStorage.clear();")
     driver.refresh() 
-    time.sleep(5) 
+    time.sleep(6) # Даємо час на появу вікон
 
-    # 2. ОБРОБКА ПЕРЕШКОД
+    # 2. ОБРОБКА МОДАЛЬНИХ ВІКОН
+    print("[*] Обробка перешкод...")
     try:
+        # Приймаємо куки
         cookie_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'ринять')] | //button[contains(., 'ринйняти')]")))
         cookie_btn.click()
         print("[+] Куки прийнято")
@@ -71,6 +73,7 @@ try:
         pass
 
     try:
+        # Закриваємо рекламу
         close_btn = driver.find_element(By.CSS_SELECTOR, "div[class*='modal'] svg, .modal-close, button[class*='close']")
         driver.execute_script("arguments[0].dispatchEvent(new MouseEvent('click', {bubbles: true}));", close_btn)
         print("[+] Рекламу закрито")
@@ -79,7 +82,12 @@ try:
 
     time.sleep(2)
 
-    # 3. ВВЕДЕННЯ EMAIL (Емуляція людини)
+    # 3. ВВЕДЕННЯ EMAIL ТА ЗАПИТ ТЕСТУ
+    def safe_click_test_btn():
+        """Функція для уникнення stale element reference."""
+        btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'ротесту')] | //button[contains(., 'ротести')]")))
+        driver.execute_script("arguments[0].click();", btn)
+
     email_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']")))
     email_field.clear()
     for char in email_addr:
@@ -87,23 +95,22 @@ try:
         time.sleep(0.1)
     
     time.sleep(2)
-
-    # Запит тесту
-    test_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'ротесту')] | //button[contains(., 'ротести')]")))
-    driver.execute_script("arguments[0].click();", test_btn)
+    safe_click_test_btn()
     
     # Перевірка успішної відправки
-    time.sleep(4)
+    time.sleep(5)
     if "відправлено код" not in driver.page_source.lower() and "код отправлен" not in driver.page_source.lower():
-        print("[-] Попередження: Форма вводу коду не з'явилася. Спроба повторного кліку...")
-        driver.execute_script("arguments[0].click();", test_btn)
-        time.sleep(3)
+        print("[-] Форма вводу коду не з'явилася. Повторна спроба кліку...")
+        try:
+            safe_click_test_btn() # Знаходимо кнопку заново
+            time.sleep(3)
+        except:
+            pass
 
     # 4. ВВЕДЕННЯ КОДУ
     otp_code = wait_for_otp_code(email_addr)
     if not otp_code: 
-        print("[-] Код не знайдено. Вміст сторінки для діагностики:")
-        print(driver.page_source[:500]) # Вивід початку сторінки для пошуку тексту помилки
+        driver.save_screenshot("otp_missing.png")
         raise Exception("Код не отримано")
 
     print(f"[+] Код отримано: {otp_code}")
@@ -136,15 +143,15 @@ try:
         final_key = key_match.group(1)
         print(f"[УСПІХ] КЛЮЧ: {final_key}")
         
-        # Оновлення на сервері i-tv.top
+        # Оновлення на вашому сервері
         driver.get(MY_PANEL_URL)
         time.sleep(5)
         input_field = wait.until(EC.presence_of_element_located((By.NAME, "input_data")))
         driver.execute_script("arguments[0].value = arguments[1];", input_field, final_key)
         driver.execute_script("document.querySelector('form').submit();")
-        print("[+++] СИСТЕМУ ОНОВЛЕНО")
+        print("[+++] ДАНІ ОНОВЛЕНО")
     else:
-        print("[-] Ключ не знайдено")
+        print("[-] Ключ не знайдено на сторінці")
         driver.save_screenshot("ott_key_missing.png")
 
 except Exception as e:
