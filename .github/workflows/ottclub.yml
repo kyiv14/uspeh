@@ -1,1 +1,43 @@
+name: Update OTTClub Token
+
+on:
+  schedule:
+    # Запуск кожні 2 дні о 04:30 UTC
+    - cron: '30 4 */2 * *'
+  # Дозволяє запуск через API з вашого сайту (кнопка "Запустити робота")
+  workflow_dispatch:
+
+jobs:
+  run-ott-script:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.10'
+
+      - name: Update Google Chrome
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y google-chrome-stable
+
+      - name: Install Dependencies
+        run: |
+          pip install undetected-chromedriver requests beautifulsoup4 selenium
+
+      - name: Run OTTClub Script
+        run: python ottclub_auto.py
+
+      - name: Upload Debug Screenshots
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ott-debug-screenshots
+          path: |
+            ott_error.png
+            ott_fatal.png
 
