@@ -8,27 +8,22 @@ from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
 
-# --- КОНФІГУРАЦІЯ (ПЕРЕВІРЕНО) ---
+# --- КОНФІГУРАЦІЯ ---
 TEMP_MAIL_URL = "https://i-tv.top/tempmail/index.php"
 CHECK_MAIL_URL = "https://i-tv.top/tempmail/check.php"
 MY_PANEL_URL = "https://i-tv.top/uspeh/?tab=uspeh" 
 
 def get_temp_email():
-    """Отримує нову адресу електронної пошти через ваш API."""
+    """Отримує нову адресу через ваш API."""
     try:
         response = requests.get(TEMP_MAIL_URL, timeout=15)
-        # Спроба 1: Шукаємо елемент з ID emailText (як у вашому PHP)
         soup = BeautifulSoup(response.text, 'html.parser')
         email_element = soup.find(id="emailText")
         if email_element:
             return email_element.text.strip()
         
-        # Спроба 2: Якщо ID немає, шукаємо просто текст формату email через регулярку
         email_match = re.search(r'[a-zA-Z0-9_.+-]+@[a-zA-Z0-9-]+\.[a-zA-Z0-9-.]+', response.text)
-        if email_match:
-            return email_match.group(0)
-            
-        return None
+        return email_match.group(0) if email_match else None
     except Exception as e:
         print(f"[-] Помилка отримання пошти: {e}")
         return None
@@ -46,7 +41,7 @@ def wait_for_otp_code(email):
         except: continue
     return None
 
-# --- ЗАПУСК ---
+# --- ЗАПУСК БРАУЗЕРА ---
 options = uc.ChromeOptions()
 options.add_argument("--headless") 
 options.add_argument("--no-sandbox")
@@ -58,12 +53,7 @@ try:
     wait = WebDriverWait(driver, 30)
 
     email_addr = get_temp_email()
-    if not email_addr: 
-        print("[-] Текст відповіді сервера для діагностики:")
-        # Це допоможе зрозуміти, чому пошта не отрималась
-        # print(requests.get(TEMP_MAIL_URL).text[:200]) 
-        exit("[-] Не вдалося отримати пошту")
-    
+    if not email_addr: exit("[-] Не вдалося отримати пошту")
     print(f"[+] Пошта отримана: {email_addr}")
 
     # 1. ПІДГОТОВКА СТОРІНКИ
@@ -89,18 +79,37 @@ try:
 
     # 3. ВВЕДЕННЯ EMAIL ТА КЛІК
     email_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']")))
+    email_field.clear()
     for char in email_addr:
         email_field.send_keys(char)
         time.sleep(random.uniform(0.05, 0.1))
     
+    # СКРІНШОТ ПЕРЕД КЛІКОМ
+    driver.save_screenshot("before_click.png") 
     time.sleep(2)
     
-    test_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'ротесту')] | //button[contains(., 'ротести')]")))
-    driver.execute_script("arguments[0].click();", test_btn)
+    def safe_click():
+        btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'ротесту')] | //button[contains(., 'ротести')]")))
+        driver.execute_script("arguments[0].click();", btn)
+
+    safe_click()
     
+    # СКРІНШОТ ПІСЛЯ КЛІКУ
+    time.sleep(2)
+    driver.save_screenshot("after_click.png")
+    
+    # Перевірка успішної відправки
+    if "відправлено код" not in driver.page_source.lower() and "код отправлен" not in driver.page_source.lower():
+        print("[-] Форма вводу коду не з'явилася. Діагностика...")
+        print(driver.execute_script("return document.body.innerText.substring(0, 500);"))
+        safe_click()
+        time.sleep(3)
+
     # 4. ВВЕДЕННЯ КОДУ
     otp_code = wait_for_otp_code(email_addr)
-    if not otp_code: raise Exception("Код не отримано")
+    if not otp_code: 
+        driver.save_screenshot("otp_timeout.png")
+        raise Exception("Код не отримано")
 
     print(f"[+] Код: {otp_code}")
     code_inputs = driver.find_elements(By.CSS_SELECTOR, "input[maxlength='1'], .regform input")
@@ -130,7 +139,7 @@ try:
         input_f = wait.until(EC.presence_of_element_located((By.NAME, "input_data")))
         driver.execute_script("arguments[0].value = arguments[1];", input_f, final_key)
         driver.execute_script("document.querySelector('form').submit();")
-        print("[+++] ДАНІ ОНОВЛЕНО")
+        print("[+++] СИСТЕМУ ОНОВЛЕНО")
     else:
         print("[-] Ключ не знайдено")
         driver.save_screenshot("ott_key_missing.png")
