@@ -1,11 +1,8 @@
 name: Update Uspeh Token
 
-# Налаштування розкладу та ручного запуску
 on:
   schedule:
-    # Автоматичний запуск кожні 2 дні о 04:00 за UTC (06:00 за Києвом)
     - cron: '0 4 */2 * *'
-  # Дозволяє запускати скрипт вручную кнопкою "Run workflow"
   workflow_dispatch:
 
 jobs:
@@ -13,41 +10,30 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # 1. Отримання коду з вашого репозиторію
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Встановлення Python 3.10
       - name: Set up Python
-        uses: actions/setup-python@v4
+        uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # 3. Встановлення Google Chrome Stable та залежностей для рендерингу
-      - name: Install Google Chrome and dependencies
+      - name: Install Google Chrome
         run: |
           sudo apt-get update
-          sudo apt-get install -y google-chrome-stable libnss3 libgconf-2-4 libxi6 libgbm1
+          sudo apt-get install -y google-chrome-stable
 
-      # 4. Встановлення необхідних бібліотек Python
       - name: Install Python Dependencies
         run: |
           python -m pip install --upgrade pip
           pip install undetected-chromedriver requests beautifulsoup4 selenium
 
-      # 5. Запуск основного скрипта
-      # У вашому скрипті vip_uspeh.py обов'язково мають бути налаштовані аргументи '--headless' та '--no-sandbox'
       - name: Run script
         run: python vip_uspeh.py
 
-      # 6. Збереження скріншотів у разі помилки
-      # Якщо скрипт впаде, ви зможете знайти скріншоти в артефактах запуску
       - name: Upload Debug Screenshots
         if: failure()
         uses: actions/upload-artifact@v4
         with:
           name: debug-screenshots
-          path: |
-            token_missing_debug.png
-            final_error.png
-            *.png
+          path: "*.png"
