@@ -29,12 +29,10 @@ def get_temp_email():
 def wait_for_activation_link(session, email):
     """Очікує на лист підтвердження в поштовій скриньці."""
     print(f"[*] Очікуємо на лист для {email}...")
-    # Регулярний вираз для пошуку посилання активації
     pattern = r'https://billing\.uspeh\.tv/verify-email\?token=[a-zA-Z0-9]+'
     for _ in range(60): 
         time.sleep(5)
         try:
-            # nocache додано для уникнення старих результатів
             response = session.get(f"{CHECK_MAIL_URL}?lang=ru&nocache={time.time()}", timeout=10)
             link_match = re.search(pattern, response.text)
             if link_match:
@@ -44,37 +42,43 @@ def wait_for_activation_link(session, email):
     return None
 
 def get_clean_options():
-    """Створює новий об'єкт опцій для кожної спроби запуску (виправляє помилку reuse)."""
+    """Створює новий об'єкт опцій для кожної спроби запуску."""
     options = uc.ChromeOptions()
-    options.add_argument("--headless")  # Обов'язково для GitHub Actions
+    options.add_argument("--headless") 
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--disable-gpu")
     options.add_argument("--window-size=1920,1080")
-    # Маскування автоматизації
     options.add_argument("--disable-blink-features=AutomationControlled")
     return options
 
-# --- ЗАПУСК БРАУЗЕРА ---
+# --- ЗАПУСК БРАУЗЕРА (ВИПРАВЛЕНО ДЛЯ ВЕРСІЇ 147) ---
 print("[*] Ініціалізація маскованого браузера...")
 
 driver = None
+# Вказуємо версію 147, яку зараз використовує GitHub
+CURRENT_CHROME_VERSION = 147 
+
 try:
-    # Спроба №1: Автоматичний підбір драйвера (найбільш стабільний варіант)
-    driver = uc.Chrome(options=get_clean_options(), use_subprocess=True) 
+    # Спроба №1: З явною вказівкою версії 147
+    driver = uc.Chrome(
+        options=get_clean_options(), 
+        version_main=CURRENT_CHROME_VERSION,
+        use_subprocess=True
+    ) 
     wait = WebDriverWait(driver, 40)
 except Exception as e:
-    print(f"[*] Спроба №1 не вдалася: {e}. Пробуємо альтернативну конфігурацію...")
+    print(f"[*] Спроба №1 (v{CURRENT_CHROME_VERSION}) не вдалася: {e}")
     try:
-        # Спроба №2: З вимкненим сабпроцесом, якщо перша не пройшла
-        driver = uc.Chrome(options=get_clean_options(), use_subprocess=False)
+        # Спроба №2: Автоматичний підбір драйвера
+        driver = uc.Chrome(options=get_clean_options(), use_subprocess=True)
         wait = WebDriverWait(driver, 40)
     except Exception as e2:
         print(f"[-] Критична помилка запуску: {e2}")
         exit(1)
 
 try:
-    # 1. Отримання пошти
+    # 1. Реєстрація на Uspeh TV
     email_addr, py_session = get_temp_email()
     if not email_addr: 
         raise Exception("Не вдалося отримати тимчасову пошту")
@@ -83,7 +87,6 @@ try:
     username = email_addr.split('@')[0]
     password = "VipPassword123!"
 
-    # 2. Реєстрація
     driver.get("https://billing.uspeh.tv/register")
     time.sleep(5)
     
@@ -95,31 +98,30 @@ try:
     pass_inputs[1].send_keys(password)
     
     driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
-    print("[*] Форму реєстрації відправлено. Чекаємо на лист...")
+    print("[*] Реєстрація відправлена. Чекаємо на активацію...")
 
-    # 3. Активація через посилання
+    # 2. Активація через посилання
     activation_link = wait_for_activation_link(py_session, email_addr)
     if not activation_link:
-        raise Exception("Лист активації не прийшов протягом 5 хвилин")
+        raise Exception("Лист активації не знайдено")
     
     driver.get(activation_link)
-    print("[+] Аккаунт активовано посиланням")
+    print("[+] Аккаунт активовано")
     time.sleep(3)
 
-    # 4. Авторизація
+    # 3. Авторизація
     wait.until(EC.visibility_of_element_located((By.CSS_SELECTOR, "input[type='password']")))
     driver.find_element(By.CSS_SELECTOR, "input[type='text'], input[name='login']").send_keys(email_addr)
     driver.find_element(By.CSS_SELECTOR, "input[type='password']").send_keys(password)
     driver.find_element(By.CSS_SELECTOR, "button[type='submit']").click()
-    print("[*] Вхід у кабінет виконано")
+    print("[*] Вхід виконано")
 
-    # 5. Пошук токена
-    print("[*] Пошук токена в особистому кабінеті...")
-    time.sleep(15) # Даємо час JS завантажити дані
+    # 4. Пошук токена
+    print("[*] Очікуємо завантаження токена (15 сек)...")
+    time.sleep(15) 
     
     final_token = None
     page_source = driver.page_source
-    # Шукаємо 16-значний буквено-цифровий код
     potential_tokens = re.findall(r'[A-Za-z0-9]{16}', page_source)
     
     for t in potential_tokens:
@@ -130,36 +132,33 @@ try:
     if final_token:
         print(f"[УСПІХ] ТОКЕН ЗНАЙДЕНО: {final_token}")
         
-        # 6. Відправка на ваш сервер i-tv.top
-        print(f"[*] Перехід на панель управління для запису...")
+        # 5. Оновлення на вашому сайті i-tv.top
         driver.get(MY_PANEL_URL)
         time.sleep(5)
 
-        # Очищення інтерфейсу від заважаючих елементів
+        # Очищення інтерфейсу перед відправкою
         driver.execute_script("""
             document.querySelectorAll('#reminderOverlay, .modal-backdrop, .toast-container').forEach(el => el.remove());
             document.body.style.overflow = 'auto';
         """)
 
-        # Знаходимо поле і вводимо токен
         input_field = wait.until(EC.presence_of_element_located((By.NAME, "input_data")))
         driver.execute_script("arguments[0].value = arguments[1];", input_field, final_token)
         
-        # Сабміт форми через JS (найнадійніший метод для серверних оточень)
+        # Прямий submit через JS для надійності
         driver.execute_script("document.querySelector('form').submit();")
         
-        print("[+++] ДАНІ УСПІШНО ОНОВЛЕНО НА СЕРВЕРІ I-TV.TOP")
+        print("[+++] ДАНІ ВІДПРАВЛЕНО НА СЕРВЕР")
         time.sleep(5) 
     else:
-        print("[-] Помилка: Токен не знайдено на сторінці.")
-        driver.save_screenshot("no_token_debug.png")
+        print("[-] Помилка: Токен не знайдено.")
+        driver.save_screenshot("token_missing.png")
 
 except Exception as e:
     print(f"[-] Сталася помилка: {e}")
     if driver:
-        driver.save_screenshot("error_state.png")
+        driver.save_screenshot("error_debug.png")
 
 finally:
     if driver:
         driver.quit()
-        print("[*] Браузер закрито")
