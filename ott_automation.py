@@ -30,7 +30,8 @@ def get_temp_email():
 def wait_for_otp_code(session, email):
     print(f"[*] Очікуємо на код для {email}...")
     pattern = r'\b\d{6}\b'
-    for _ in range(60): 
+    # Збільшуємо час очікування до 7 хвилин (84 спроби по 5 сек)
+    for _ in range(84): 
         time.sleep(5)
         try:
             response = session.get(f"{CHECK_MAIL_URL}?lang=ru&nocache={time.time()}", timeout=10)
@@ -59,7 +60,7 @@ driver = uc.Chrome(
     version_main=CURRENT_CHROME_VERSION,
     use_subprocess=True
 )
-wait = WebDriverWait(driver, 45)
+wait = WebDriverWait(driver, 50)
 
 try:
     # 1. Завантаження сайту
@@ -69,28 +70,31 @@ try:
     time.sleep(10)
     print("[+] Сайт завантажено.")
 
-    # 2. Видалення перешкод
-    driver.execute_script("""
-        document.querySelectorAll('.modal, .cookie-banner, .overlay, [class*="close"]').forEach(el => el.remove());
-    """)
+    # 2. Очищення сторінки
+    driver.execute_script("document.querySelectorAll('.modal, .cookie-banner, .overlay, [class*=\"close\"]').forEach(el => el.remove());")
 
     # 3. Реєстрація
     email_addr, py_session = get_temp_email()
     if not email_addr: raise Exception("Пошта не отримана")
     print(f"[+] Пошта: {email_addr}")
     
-    # Знаходимо інпут
     email_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']")))
     email_input.clear()
     email_input.send_keys(email_addr)
+    time.sleep(2)
     
-    # Замість JS submit використовуємо клавішу ENTER
-    time.sleep(1)
-    email_input.send_keys(Keys.ENTER)
-    print("[*] Дані відправлено натисканням ENTER.")
+    # СПРОБА 1: Клік по кнопці через JS
+    try:
+        submit_btn = driver.find_element(By.XPATH, "//button[contains(., 'Протесту')] | //form//button")
+        driver.execute_script("arguments[0].click();", submit_btn)
+        print("[*] Кнопку натиснуто через JS.")
+    except:
+        # СПРОБА 2: Натискання ENTER
+        email_input.send_keys(Keys.ENTER)
+        print("[*] Дані відправлено через ENTER.")
 
     # 4. Чекбокс та Код
-    time.sleep(5)
+    time.sleep(8) # Даємо сайту час подумати
     try:
         checkbox = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='checkbox']")))
         driver.execute_script("arguments[0].click();", checkbox)
@@ -98,8 +102,12 @@ try:
     except: pass
 
     otp = wait_for_otp_code(py_session, email_addr)
-    if not otp: raise Exception("Код не знайдено.")
-    print(f"[+] Код: {otp}")
+    if not otp: 
+        # Якщо код не знайдено, зробимо скріншот форми, можливо там помилка "Email вже існує"
+        driver.save_screenshot("no_code_error.png")
+        raise Exception("Код не знайдено.")
+    
+    print(f"[+] Отримано код: {otp}")
 
     # Введення коду
     code_fields = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "input[type='text'], input[class*='code']")))
@@ -107,21 +115,19 @@ try:
         if i < len(code_fields):
             code_fields[i].send_keys(char)
     
-    # Відправка коду через ENTER на останньому полі
-    time.sleep(1)
+    time.sleep(2)
     code_fields[-1].send_keys(Keys.ENTER)
-    print("[*] Код підтверджено натисканням ENTER.")
+    print("[*] Код підтверджено.")
 
     # 5. Отримання Ключа
-    time.sleep(10)
+    time.sleep(12)
     driver.get("https://www.ottclub.tv/billing")
-    time.sleep(5)
+    time.sleep(6)
     
     key_el = wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Ключ')]/following-sibling::div | //input[@id='api-key']")))
     final_key = key_el.text.strip() if key_el.tag_name != 'input' else key_el.get_attribute('value')
     
     if not final_key:
-        # Спроба знайти будь-який токен у вихідному коді
         match = re.search(r'[A-Z0-9]{10,16}', driver.page_source)
         if match: final_key = match.group(0)
 
@@ -134,8 +140,6 @@ try:
     
     token_field = wait.until(EC.presence_of_element_located((By.NAME, "input_data")))
     driver.execute_script("arguments[0].value = arguments[1];", token_field, final_key)
-    
-    # Тут залишаємо submit, бо на вашому сайті форма стандартна
     driver.execute_script("document.querySelector('form').submit();")
     
     print("[+++] ДАНІ ВІДПРАВЛЕНО НА СЕРВЕР")
