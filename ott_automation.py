@@ -71,11 +71,12 @@ try:
         print("[+] Кукі прийнято.")
         
         # Закриваємо банер мобільного застосунку (Крестик)
-        close_x = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[local-name()='svg' or contains(@class, 'close')]")))
+        # Використовуємо універсальний шлях для хрестика (SVG або клас close)
+        close_x = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[local-name()='svg' and contains(@class, 'close')] | //*[contains(@class, 'modal-close')] | //div[contains(@class, 'close')]")))
         close_x.click()
         print("[+] Рекламний банер закрито.")
     except Exception as e:
-        print(f"[!] Модалки не знайдено або вже закрито: {e}")
+        print(f"[!] Модалки не знайдено або вже закрито.")
 
     # 3. Реєстрація (Screenshot 2)
     email_addr, py_session = get_temp_email()
@@ -84,42 +85,50 @@ try:
     print(f"[+] Використовуємо: {email_addr}")
     
     email_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']")))
+    email_field.clear()
     email_field.send_keys(email_addr)
     
     # Кнопка "Протестувати 3 дні безкоштовно"
-    driver.find_element(By.XPATH, "//button[contains(., 'Протестувати')]").click()
+    test_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Протестувати')]")))
+    test_btn.click()
 
     # 4. Чекбокс та Код (Screenshot 4, 5)
-    # Погодження з умовами
-    check_box = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "input[type='checkbox']")))
+    # Погодження з умовами (Чекбокс часто потребує JS кліку, якщо перекритий)
+    check_box = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='checkbox']")))
     if not check_box.is_selected():
         driver.execute_script("arguments[0].click();", check_box)
+    print("[+] Чекбокс активовано.")
 
-    # Очікування коду
+    # Очікування коду через твій API
     otp = wait_for_otp_code(py_session, email_addr)
     if not otp: raise Exception("Код не отримано вчасно")
     print(f"[+] Отримано код: {otp}")
 
-    # Введення коду в ячейки
-    code_inputs = driver.find_elements(By.CSS_SELECTOR, ".reg-form input[type='text'], input[class*='code']")
+    # Введення коду в 6 ячейок (Screenshot 5)
+    # Зазвичай це масив інпутів у формі reg-form
+    code_inputs = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, ".reg-form input[type='text'], input[class*='code']")))
     for i, char in enumerate(otp):
         code_inputs[i].send_keys(char)
     
-    driver.find_element(By.XPATH, "//button[contains(., 'Продовжити')]").click()
-    print("[*] Код введено. Чекаємо на кабінет...")
+    # Кнопка "Продовжити"
+    continue_btn = driver.find_element(By.XPATH, "//button[contains(., 'Продовжити')]")
+    continue_btn.click()
+    print("[*] Код введено. Перехід до кабінету...")
 
     # 5. Отримання Ключа (Screenshot 8, 9)
-    # Натискаємо на профіль (верхній правий кут)
-    profile_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "a[href*='billing'], .icon-user, .user-menu")))
+    # Чекаємо завантаження кабінету та тиснемо на профіль (верхній правий кут)
+    # Часто це елемент з класом .icon-user або посиланням на billing
+    profile_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "a[href*='billing'], .icon-user, .user-menu, .header__user")))
     profile_btn.click()
+    print("[*] Відкрито налаштування профілю.")
     
     # Отримуємо текст ключа з модального вікна "Налаштування профілю"
-    # Шукаємо елемент після слова "Ключ"
-    key_element = wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Ключ')]/following-sibling::div")))
-    ott_key = key_element.text.strip()
+    # Шукаємо div, який іде після тексту "Ключ"
+    key_element = wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Ключ')]/following-sibling::div | //input[@id='api-key']")))
+    ott_key = key_element.text.strip() if key_element.tag_name != 'input' else key_element.get_attribute('value')
     
-    if not ott_key:
-        raise Exception("Ключ пустий або не знайдений")
+    if not ott_key or len(ott_key) < 5:
+        raise Exception("Ключ пустий або не знайдений у профілі")
     
     print(f"[УСПІХ] КЛЮЧ ЗНАЙДЕНО: {ott_key}")
 
@@ -127,26 +136,35 @@ try:
     driver.get(MY_PANEL_URL)
     time.sleep(5)
 
-    # Очистка можливих накладень (overlays)
-    driver.execute_script("document.querySelectorAll('.modal-backdrop, #reminderOverlay').forEach(el => el.remove());")
+    # Очистка можливих накладень (overlays), щоб вони не заважали кліку
+    driver.execute_script("""
+        document.querySelectorAll('.modal-backdrop, #reminderOverlay, .toast').forEach(el => el.remove());
+        document.body.style.overflow = 'auto';
+    """)
 
-    # Вставка ключа
-    input_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[placeholder*='токен'], name='input_data'")))
+    # Знаходимо поле для вставки токена
+    # На основі Screenshot 10, шукаємо інпут всередині форми
+    input_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[placeholder*='токен'], input[name='input_data']")))
     input_field.clear()
-    input_field.send_keys(ott_key)
+    
+    # Використовуємо JS для вставки, щоб уникнути проблем з фокусом
+    driver.execute_script("arguments[0].value = arguments[1];", input_field, ott_key)
     
     # Натискаємо "ОНОВИТИ СИСТЕМУ"
-    update_btn = driver.find_element(By.XPATH, "//button[contains(., 'ОНОВИТИ')]")
-    update_btn.click()
+    # Можна через submit форми для надійності
+    try:
+        update_btn = driver.find_element(By.XPATH, "//button[contains(., 'ОНОВИТИ')]")
+        update_btn.click()
+    except:
+        driver.execute_script("document.querySelector('form').submit();")
     
     print("[+++] ДАНІ УСПІШНО ВІДПРАВЛЕНО НА СЕРВЕР")
-    time.sleep(5)
+    time.sleep(5) 
 
 except Exception as e:
     print(f"[-] Критична помилка: {e}")
-    driver.save_screenshot("debug_error.png") # Збереже скриншот у разі помилки
+    driver.save_screenshot("debug_error.png") # Збереження доказу для GitHub Actions
 
 finally:
     driver.quit()
-    print("[*] Роботу завершено.")
-  
+    print("[*] Роботу браузера завершено.")
