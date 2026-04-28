@@ -6,14 +6,14 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
 from bs4 import BeautifulSoup
+import traceback
 
-# --- КОНФІГУРАЦІЯ (Твоя панель та API) ---
+# --- КОНФІГУРАЦІЯ ---
 TEMP_MAIL_URL = "https://i-tv.top/tempmail/index.php"
 CHECK_MAIL_URL = "https://i-tv.top/tempmail/check.php"
 MY_PANEL_URL = "https://i-tv.top/uspeh/?tab=ottclub"
 
 def get_temp_email():
-    """Отримує нову адресу електронної пошти через твій API."""
     session = requests.Session()
     try:
         response = session.get(TEMP_MAIL_URL, timeout=15)
@@ -27,9 +27,8 @@ def get_temp_email():
         return None, None
 
 def wait_for_otp_code(session, email):
-    """Очікує на 6-значний код підтвердження в поштовій скриньці."""
     print(f"[*] Очікуємо на код для {email}...")
-    pattern = r'\b\d{6}\b' # Шукаємо рівно 6 цифр
+    pattern = r'\b\d{6}\b'
     for _ in range(60): 
         time.sleep(5)
         try:
@@ -42,7 +41,6 @@ def wait_for_otp_code(session, email):
     return None
 
 def get_clean_options():
-    """Налаштування для роботи на сервері (GitHub Actions)."""
     options = uc.ChromeOptions()
     options.add_argument("--headless") 
     options.add_argument("--no-sandbox")
@@ -53,103 +51,96 @@ def get_clean_options():
 
 # --- ЗАПУСК ---
 print("[*] Ініціалізація браузера...")
-
-# ВИПРАВЛЕННЯ ПОМИЛКИ ВЕРСІЇ: Вказуємо Chrome 147 для GitHub Actions
 CURRENT_CHROME_VERSION = 147 
 
-try:
-    driver = uc.Chrome(
-        options=get_clean_options(), 
-        version_main=CURRENT_CHROME_VERSION,
-        use_subprocess=True
-    )
-    wait = WebDriverWait(driver, 40)
-except Exception as e:
-    print(f"[-] Помилка ініціалізації версії {CURRENT_CHROME_VERSION}: {e}")
-    # Резервна спроба автоматичного підбору
-    driver = uc.Chrome(options=get_clean_options(), use_subprocess=True)
-    wait = WebDriverWait(driver, 40)
+driver = uc.Chrome(
+    options=get_clean_options(), 
+    version_main=CURRENT_CHROME_VERSION,
+    use_subprocess=True
+)
+wait = WebDriverWait(driver, 30)
 
 try:
-    # 1. Перехід на сайт та очищення кукі
+    # 1. Завантаження сайту
     driver.get("https://www.ottclub.tv/")
     driver.delete_all_cookies()
     driver.refresh()
-    print("[+] Кукі очищено, сторінку оновлено.")
+    print("[+] Сторінку оновлено.")
 
-    # 2. Обробка модальних вікон
+    # 2. Модалки
     try:
-        accept_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Принять все')]")))
+        # Шукаємо будь-яку кнопку, що схожа на "Прийняти"
+        accept_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Принять')] | //button[contains(text(), 'Прийняти')]")))
         accept_btn.click()
         print("[+] Кукі прийнято.")
         
-        close_x = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[local-name()='svg' and contains(@class, 'close')] | //*[contains(@class, 'modal-close')] | //div[contains(@class, 'close')]")))
+        # Спроба закрити банер (якщо є)
+        close_x = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(@class, 'close')]")))
         close_x.click()
-        print("[+] Рекламний банер закрито.")
     except:
-        print("[!] Модалки не знайдено.")
+        print("[!] Модалки не знайдено — йдемо далі.")
 
     # 3. Реєстрація
     email_addr, py_session = get_temp_email()
-    if not email_addr: raise Exception("Не вдалося отримати пошту")
-    
+    if not email_addr: raise Exception("Пошта не отримана")
     print(f"[+] Використовуємо: {email_addr}")
     
-    email_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']")))
+    # Шукаємо інпут по типу або placeholder
+    email_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email'], input[name='email']")))
     email_field.clear()
     email_field.send_keys(email_addr)
     
-    test_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Протестувати')]")))
+    # Кнопка тесту
+    test_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Протесту')]")))
     test_btn.click()
+    print("[*] Натиснуто 'Протестувати'.")
 
     # 4. Чекбокс та Код
+    # Чекаємо появи чекбокса і клікаємо через JS (це надійніше)
     check_box = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='checkbox']")))
-    if not check_box.is_selected():
-        driver.execute_script("arguments[0].click();", check_box)
+    driver.execute_script("arguments[0].click();", check_box)
+    print("[+] Чекбокс активовано.")
 
     otp = wait_for_otp_code(py_session, email_addr)
-    if not otp: raise Exception("Код не отримано")
+    if not otp: raise Exception("Код не знайдено в листі")
     print(f"[+] Отримано код: {otp}")
 
-    code_inputs = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, ".reg-form input[type='text'], input[class*='code']")))
+    # Введення коду
+    code_inputs = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "input[class*='code'], .reg-form input")))
     for i, char in enumerate(otp):
         code_inputs[i].send_keys(char)
     
-    driver.find_element(By.XPATH, "//button[contains(., 'Продовжити')]").click()
+    # Кнопка продовження
+    driver.find_element(By.XPATH, "//button[contains(., 'Продовжити')] | //button[contains(., 'Продолжить')]").click()
 
     # 5. Отримання Ключа
-    profile_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "a[href*='billing'], .icon-user, .user-menu, .header__user")))
+    # Тиснемо на іконку профілю
+    profile_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "a[href*='billing'], .icon-user")))
     profile_btn.click()
     
+    # Беремо ключ
     key_element = wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Ключ')]/following-sibling::div | //input[@id='api-key']")))
     ott_key = key_element.text.strip() if key_element.tag_name != 'input' else key_element.get_attribute('value')
     
-    if not ott_key or len(ott_key) < 5:
-        raise Exception("Ключ не знайдений")
-    
-    print(f"[УСПІХ] КЛЮЧ ЗНАЙДЕНО: {ott_key}")
+    if not ott_key: raise Exception("Ключ не знайдено в кабінеті")
+    print(f"[УСПІХ] КЛЮЧ: {ott_key}")
 
-    # 6. Оновлення на i-tv.top
+    # 6. Оновлення i-tv.top
     driver.get(MY_PANEL_URL)
     time.sleep(5)
-
-    driver.execute_script("document.querySelectorAll('.modal-backdrop, #reminderOverlay, .toast').forEach(el => el.remove());")
+    driver.execute_script("document.querySelectorAll('.modal-backdrop, #reminderOverlay').forEach(el => el.remove());")
     
-    input_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[placeholder*='токен'], input[name='input_data']")))
-    input_field.clear()
+    input_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[name='input_data'], input[placeholder*='токен']")))
     driver.execute_script("arguments[0].value = arguments[1];", input_field, ott_key)
     
-    try:
-        update_btn = driver.find_element(By.XPATH, "//button[contains(., 'ОНОВИТИ')]")
-        update_btn.click()
-    except:
-        driver.execute_script("document.querySelector('form').submit();")
-    
+    driver.execute_script("document.querySelector('form').submit();")
     print("[+++] ДАНІ ВІДПРАВЛЕНО")
     time.sleep(5) 
 
 except Exception as e:
-    print(f"[-] Критична помилка: {e}")
+    print(f"[-] Критична помилка: {str(e)}")
+    # Виводимо повний стек помилки для діагностики
+    traceback.print_exc()
     driver.save_screenshot("debug_error.png")
 
 finally:
