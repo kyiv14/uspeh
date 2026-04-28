@@ -45,9 +45,7 @@ def get_clean_options():
     options.add_argument("--headless") 
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    # Емуляція мобільного екрану, як на скріншотах
-    options.add_argument("--window-size=375,812") 
-    options.add_argument("--user-agent=Mozilla/5.0 (iPhone; CPU iPhone OS 13_2_3 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/13.0.3 Mobile/15E148 Safari/604.1")
+    options.add_argument("--window-size=1280,1024") # Збільшимо для стабільності
     options.add_argument("--disable-blink-features=AutomationControlled")
     return options
 
@@ -67,65 +65,60 @@ try:
     driver.get("https://www.ottclub.tv/")
     driver.delete_all_cookies()
     driver.refresh()
-    time.sleep(8)
+    time.sleep(10)
     print("[+] Сайт завантажено.")
 
-    # 2. Агресивне видалення перешкод (кукі та банери) через JS
+    # 2. Видалення банерів, що перекривають форму
     driver.execute_script("""
-        var selectors = [
-            '.cookie-banner', '#cookie-popup', '[class*="cookie"]', 
-            '.modal', '.overlay', '[class*="close"]', 'button[id*="accept"]'
-        ];
-        selectors.forEach(s => {
-            document.querySelectorAll(s).forEach(el => el.remove());
-        });
-        document.body.style.overflow = 'auto';
+        document.querySelectorAll('.modal, .cookie-banner, .overlay, [class*="close"]').forEach(el => el.remove());
     """)
-    print("[*] Сторінку очищено від банерів.")
 
     # 3. Реєстрація
     email_addr, py_session = get_temp_email()
     if not email_addr: raise Exception("Пошта не отримана")
     print(f"[+] Пошта: {email_addr}")
     
-    # Введення пошти через JS для надійності
+    # Вводимо пошту
     email_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']")))
-    driver.execute_script("arguments[0].value = arguments[1];", email_input, email_addr)
-    email_input.send_keys(" ") # Тригер для валідації форми
+    email_input.clear()
+    email_input.send_keys(email_addr)
+    print("[*] Пошту введено.")
     
-    # Кнопка відправки
-    submit_btn = wait.until(EC.presence_of_element_located((By.XPATH, "//button[contains(., 'Протесту')] | //form//button[@type='submit']")))
-    driver.execute_script("arguments[0].click();", submit_btn)
-    print("[*] Форму відправлено.")
+    # Пряма відправка форми через JavaScript (найбільш надійно)
+    # Ми не шукаємо кнопку, а просто викликаємо submit на формі, де знаходиться наш інпут
+    driver.execute_script("arguments[0].closest('form').submit();", email_input)
+    print("[*] Форму відправлено (JS submit).")
 
-    # 4. Чекбокс та Код (Screenshot 3)
+    # 4. Чекбокс та Код
     time.sleep(5)
+    # На новій сторінці може знадобитися активувати чекбокс
     try:
-        # Клікаємо чекбокс прийняття умов
         checkbox = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='checkbox']")))
         driver.execute_script("arguments[0].click();", checkbox)
         print("[+] Чекбокс активовано.")
     except: pass
 
     otp = wait_for_otp_code(py_session, email_addr)
-    if not otp: raise Exception("Код не прийшов.")
+    if not otp: raise Exception("Код не знайдено.")
     print(f"[+] Код: {otp}")
 
-    # Введення коду в ячейки
-    code_fields = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "input[class*='code'], .reg-form input")))
+    # Введення цифр коду
+    # Шукаємо всі текстові інпути всередині форми
+    code_fields = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "input[type='text'], input[class*='code']")))
     for i, char in enumerate(otp):
-        code_fields[i].send_keys(char)
+        if i < len(code_fields):
+            code_fields[i].send_keys(char)
     
-    # Натискаємо "Продовжити"
-    continue_btn = driver.find_element(By.XPATH, "//button[contains(., 'Продов')] | //button[contains(., 'Продо')]")
-    driver.execute_script("arguments[0].click();", continue_btn)
+    # Знову пряма відправка форми замість кліку по кнопці "Продовжити"
+    driver.execute_script("document.querySelector('form').submit();")
+    print("[*] Код відправлено.")
 
     # 5. Отримання Ключа
-    time.sleep(8)
-    driver.get("https://www.ottclub.tv/billing") # Прямий перехід в білінг
+    time.sleep(10)
+    driver.get("https://www.ottclub.tv/billing")
     time.sleep(5)
     
-    # Пошук ключа за структурою
+    # Витягуємо ключ
     key_el = wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Ключ')]/following-sibling::div | //input[@id='api-key']")))
     final_key = key_el.text.strip() if key_el.tag_name != 'input' else key_el.get_attribute('value')
     
@@ -137,8 +130,6 @@ try:
     # 6. Оновлення i-tv.top
     driver.get(MY_PANEL_URL)
     time.sleep(5)
-    
-    # Видалення заважаючих елементів на i-tv.top
     driver.execute_script("document.querySelectorAll('.modal-backdrop, #reminderOverlay').forEach(el => el.remove());")
     
     token_field = wait.until(EC.presence_of_element_located((By.NAME, "input_data")))
