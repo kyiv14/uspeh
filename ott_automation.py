@@ -5,6 +5,7 @@ import undetected_chromedriver as uc
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.support import expected_conditions as EC
+from selenium.webdriver.common.keys import Keys
 from bs4 import BeautifulSoup
 import traceback
 
@@ -45,7 +46,7 @@ def get_clean_options():
     options.add_argument("--headless") 
     options.add_argument("--no-sandbox")
     options.add_argument("--disable-dev-shm-usage")
-    options.add_argument("--window-size=1280,1024") # Збільшимо для стабільності
+    options.add_argument("--window-size=1280,1024")
     options.add_argument("--disable-blink-features=AutomationControlled")
     return options
 
@@ -68,7 +69,7 @@ try:
     time.sleep(10)
     print("[+] Сайт завантажено.")
 
-    # 2. Видалення банерів, що перекривають форму
+    # 2. Видалення перешкод
     driver.execute_script("""
         document.querySelectorAll('.modal, .cookie-banner, .overlay, [class*="close"]').forEach(el => el.remove());
     """)
@@ -78,20 +79,18 @@ try:
     if not email_addr: raise Exception("Пошта не отримана")
     print(f"[+] Пошта: {email_addr}")
     
-    # Вводимо пошту
+    # Знаходимо інпут
     email_input = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email']")))
     email_input.clear()
     email_input.send_keys(email_addr)
-    print("[*] Пошту введено.")
     
-    # Пряма відправка форми через JavaScript (найбільш надійно)
-    # Ми не шукаємо кнопку, а просто викликаємо submit на формі, де знаходиться наш інпут
-    driver.execute_script("arguments[0].closest('form').submit();", email_input)
-    print("[*] Форму відправлено (JS submit).")
+    # Замість JS submit використовуємо клавішу ENTER
+    time.sleep(1)
+    email_input.send_keys(Keys.ENTER)
+    print("[*] Дані відправлено натисканням ENTER.")
 
     # 4. Чекбокс та Код
     time.sleep(5)
-    # На новій сторінці може знадобитися активувати чекбокс
     try:
         checkbox = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='checkbox']")))
         driver.execute_script("arguments[0].click();", checkbox)
@@ -102,28 +101,29 @@ try:
     if not otp: raise Exception("Код не знайдено.")
     print(f"[+] Код: {otp}")
 
-    # Введення цифр коду
-    # Шукаємо всі текстові інпути всередині форми
+    # Введення коду
     code_fields = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "input[type='text'], input[class*='code']")))
     for i, char in enumerate(otp):
         if i < len(code_fields):
             code_fields[i].send_keys(char)
     
-    # Знову пряма відправка форми замість кліку по кнопці "Продовжити"
-    driver.execute_script("document.querySelector('form').submit();")
-    print("[*] Код відправлено.")
+    # Відправка коду через ENTER на останньому полі
+    time.sleep(1)
+    code_fields[-1].send_keys(Keys.ENTER)
+    print("[*] Код підтверджено натисканням ENTER.")
 
     # 5. Отримання Ключа
     time.sleep(10)
     driver.get("https://www.ottclub.tv/billing")
     time.sleep(5)
     
-    # Витягуємо ключ
     key_el = wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Ключ')]/following-sibling::div | //input[@id='api-key']")))
     final_key = key_el.text.strip() if key_el.tag_name != 'input' else key_el.get_attribute('value')
     
     if not final_key:
-        final_key = re.search(r'[A-Z0-9]{8,16}', driver.page_source).group(0)
+        # Спроба знайти будь-який токен у вихідному коді
+        match = re.search(r'[A-Z0-9]{10,16}', driver.page_source)
+        if match: final_key = match.group(0)
 
     print(f"[УСПІХ] КЛЮЧ: {final_key}")
 
@@ -134,9 +134,11 @@ try:
     
     token_field = wait.until(EC.presence_of_element_located((By.NAME, "input_data")))
     driver.execute_script("arguments[0].value = arguments[1];", token_field, final_key)
+    
+    # Тут залишаємо submit, бо на вашому сайті форма стандартна
     driver.execute_script("document.querySelector('form').submit();")
     
-    print("[+++] ДАНІ ВІДПРАВЛЕНО")
+    print("[+++] ДАНІ ВІДПРАВЛЕНО НА СЕРВЕР")
     time.sleep(5) 
 
 except Exception as e:
