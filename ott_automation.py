@@ -47,6 +47,8 @@ def get_clean_options():
     options.add_argument("--disable-dev-shm-usage")
     options.add_argument("--window-size=1920,1080")
     options.add_argument("--disable-blink-features=AutomationControlled")
+    # Додаємо User-Agent, щоб сайт не блокував бота
+    options.add_argument("user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36")
     return options
 
 # --- ЗАПУСК ---
@@ -58,71 +60,83 @@ driver = uc.Chrome(
     version_main=CURRENT_CHROME_VERSION,
     use_subprocess=True
 )
-wait = WebDriverWait(driver, 30)
+wait = WebDriverWait(driver, 40) # Збільшено час очікування
 
 try:
     # 1. Завантаження сайту
     driver.get("https://www.ottclub.tv/")
     driver.delete_all_cookies()
     driver.refresh()
-    print("[+] Сторінку оновлено.")
+    time.sleep(5)
+    print("[+] Сторінку завантажено.")
 
-    # 2. Модалки
+    # 2. Закриття модальних вікон
     try:
-        # Шукаємо будь-яку кнопку, що схожа на "Прийняти"
-        accept_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(text(), 'Принять')] | //button[contains(text(), 'Прийняти')]")))
-        accept_btn.click()
+        # Прийняти кукі
+        cookie_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Принять')] | //button[contains(., 'Прийняти')] | //button[contains(@class, 'cookie')]")))
+        cookie_btn.click()
         print("[+] Кукі прийнято.")
-        
-        # Спроба закрити банер (якщо є)
-        close_x = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(@class, 'close')]")))
-        close_x.click()
     except:
-        print("[!] Модалки не знайдено — йдемо далі.")
+        print("[!] Кнопка кукі не знайдена.")
+
+    try:
+        # Закрити рекламний банер (Screenshot 1)
+        close_x = wait.until(EC.element_to_be_clickable((By.XPATH, "//*[contains(@class, 'close')] | //*[local-name()='svg' and contains(@class, 'close')]")))
+        driver.execute_script("arguments[0].click();", close_x)
+        print("[+] Рекламний банер закрито.")
+    except:
+        print("[!] Банер не знайдено.")
 
     # 3. Реєстрація
     email_addr, py_session = get_temp_email()
     if not email_addr: raise Exception("Пошта не отримана")
-    print(f"[+] Використовуємо: {email_addr}")
+    print(f"[+] Пошта: {email_addr}")
     
-    # Шукаємо інпут по типу або placeholder
+    # Пошук поля вводу
     email_field = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='email'], input[name='email']")))
     email_field.clear()
     email_field.send_keys(email_addr)
     
-    # Кнопка тесту
-    test_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Протесту')]")))
-    test_btn.click()
-    print("[*] Натиснуто 'Протестувати'.")
+    # Пошук кнопки через кілька варіантів (більш надійно)
+    try:
+        test_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "button.btn-primary, button[type='submit'], .registration-form button")))
+        test_btn.click()
+    except:
+        # Якщо селектори не спрацювали, клікаємо по кнопці з будь-яким текстом у формі
+        test_btn = driver.find_element(By.XPATH, "//form//button")
+        driver.execute_script("arguments[0].click();", test_btn)
+    
+    print("[*] Форма відправлена.")
 
     # 4. Чекбокс та Код
-    # Чекаємо появи чекбокса і клікаємо через JS (це надійніше)
+    # Очікуємо появи чекбокса (Угода)
     check_box = wait.until(EC.presence_of_element_located((By.CSS_SELECTOR, "input[type='checkbox']")))
     driver.execute_script("arguments[0].click();", check_box)
     print("[+] Чекбокс активовано.")
 
     otp = wait_for_otp_code(py_session, email_addr)
-    if not otp: raise Exception("Код не знайдено в листі")
-    print(f"[+] Отримано код: {otp}")
+    if not otp: raise Exception("Код не знайдено")
+    print(f"[+] Код: {otp}")
 
-    # Введення коду
+    # Введення 6 цифр коду
     code_inputs = wait.until(EC.presence_of_all_elements_located((By.CSS_SELECTOR, "input[class*='code'], .reg-form input")))
     for i, char in enumerate(otp):
         code_inputs[i].send_keys(char)
     
-    # Кнопка продовження
-    driver.find_element(By.XPATH, "//button[contains(., 'Продовжити')] | //button[contains(., 'Продолжить')]").click()
+    # Кнопка "Продовжити"
+    continue_btn = wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(., 'Продо')] | //button[contains(., 'Продов')]")))
+    driver.execute_script("arguments[0].click();", continue_btn)
 
     # 5. Отримання Ключа
-    # Тиснемо на іконку профілю
-    profile_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "a[href*='billing'], .icon-user")))
+    # Очікуємо завантаження кабінету і клікаємо профіль
+    profile_btn = wait.until(EC.element_to_be_clickable((By.CSS_SELECTOR, "a[href*='billing'], .icon-user, .user-menu")))
     profile_btn.click()
     
-    # Беремо ключ
+    # Виймаємо ключ
     key_element = wait.until(EC.presence_of_element_located((By.XPATH, "//div[contains(text(), 'Ключ')]/following-sibling::div | //input[@id='api-key']")))
     ott_key = key_element.text.strip() if key_element.tag_name != 'input' else key_element.get_attribute('value')
     
-    if not ott_key: raise Exception("Ключ не знайдено в кабінеті")
+    if not ott_key: raise Exception("Ключ не знайдено")
     print(f"[УСПІХ] КЛЮЧ: {ott_key}")
 
     # 6. Оновлення i-tv.top
@@ -134,15 +148,14 @@ try:
     driver.execute_script("arguments[0].value = arguments[1];", input_field, ott_key)
     
     driver.execute_script("document.querySelector('form').submit();")
-    print("[+++] ДАНІ ВІДПРАВЛЕНО")
+    print("[+++] ГОТОВО: ДАНІ ВІДПРАВЛЕНО")
     time.sleep(5) 
 
 except Exception as e:
-    print(f"[-] Критична помилка: {str(e)}")
-    # Виводимо повний стек помилки для діагностики
+    print(f"[-] Помилка: {str(e)}")
     traceback.print_exc()
     driver.save_screenshot("debug_error.png")
 
 finally:
     driver.quit()
-    print("[*] Роботу завершено.")
+    print("[*] Кінець роботи.")
